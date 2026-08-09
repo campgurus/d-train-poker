@@ -1,0 +1,15 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+
+# Local test artifacts
+*.log
+node_modules/
+
+# Don't accidentally commit exported progress backups
+ledger-progress-*.json
