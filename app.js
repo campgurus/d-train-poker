@@ -220,8 +220,8 @@ function renderHeatmap(mode,pos){
         const acc = p.correct/p.total;
         weak = !isMastered(p);
         if(isMastered(p)){ bg = 'var(--sage-bright)'; tip = hand+': mastered ('+p.correct+'/'+p.total+')'; }
-        else if(acc>=0.5){ bg = 'var(--gold-bright)'; tip = hand+': learning ('+(acc*100).toFixed(0)+'%, '+p.total+' reps)'; }
-        else { bg = 'var(--brick-bright)'; tip = hand+': learning ('+(acc*100).toFixed(0)+'%, '+p.total+' reps)'; }
+        else if(acc>=0.5){ bg = 'var(--gold-bright)'; tip = hand+': learning ('+(acc*100).toFixed(0)+'%, '+p.correct+'/'+p.total; }
+        else { bg = 'var(--brick-bright)'; tip = hand+': learning ('+(acc*100).toFixed(0)+'%, '+p.correct+'/'+p.total; }
       }
       const dim = (state.focusWeak && !weak) ? 'opacity:0.18;' : '';
       cells += '<div class="rfi-cell" style="background:'+bg+';'+dim+'" data-tip="'+tip+'">'+hand+'</div>';
