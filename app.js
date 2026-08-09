@@ -90,9 +90,9 @@ function renderCards(hand){
   else { s1='\u2660'; s2='\u2665'; }
   const redSuit = (s)=> (s==='\u2665'||s==='\u2666');
   return '<div class="quiz-hand">'
-    + '<div class="card '+(redSuit(s1)?'red':'')+'">'+h.c1+'<div style="font-size:16px;">'+s1+'</div></div>'
-    + '<div class="card '+(redSuit(s2)?'red':'')+'">'+h.c2+'<div style="font-size:16px;">'+s2+'</div></div>'
-    + '</div>';
+      + '<div class="card '+(redSuit(s1)?'red':'')+'">'+h.c1+'<div style="font-size:16px;">'+s1+'</div></div>'
+      + '<div class="card '+(redSuit(s2)?'red':'')+'">'+h.c2+'<div style="font-size:16px;">'+s2+'</div></div>'
+      + '</div>';
 }
 function formatHandName(hand){
   const h = parseHand(hand);
@@ -125,6 +125,59 @@ function statusFor(mode,pos,hand){
   return {cls:'rfi-status-learning', label:'Learning'};
 }
 
+// ---------- rule of thumb (shown on misses) ----------
+const POS_RFI_NOTE = {
+  UTG: "UTG has the most players left to act behind it, so opens stay tight and high-equity.",
+  HJ: "HJ is still fairly early with four players behind, so the range stays fairly disciplined.",
+  CO: "CO only has BTN and the blinds left to act, so opens widen noticeably.",
+  BTN: "BTN acts last preflop, so it opens the widest range of any seat.",
+  SB: "SB only has to get through BB, so it can open (or limp) a very wide range despite being out of position for the rest of the hand."
+};
+const POS_BB_NOTE = {
+  UTG: "UTG's opening range is tight and strong, so BB needs a real hand to continue \u2014 defend narrow here.",
+  HJ: "HJ opens are still fairly strong, so BB should stay somewhat selective defending.",
+  CO: "CO opens are wider and weaker on average, so BB can defend a noticeably wider range.",
+  BTN: "BTN opens the widest range of any seat, so BB should defend very wide in return.",
+  SB: "SB's open is wide, but SB is out of position for the rest of the hand, so BB can defend aggressively, especially with hands that play well postflop."
+};
+const HAND_NOTES = {
+  premium_pair: "Big pairs flip very few hands you're worried about, so they play as raises in almost every spot.",
+  mid_pair: "Medium pairs are strong enough to raise for value but vulnerable to overcards, so position and range width matter a lot here.",
+  small_pair: "Small pairs mostly want to see a cheap flop and hit a set \u2014 their value depends on implied odds, not raw preflop equity.",
+  suited_ace: "Suited aces carry strong blocker and flush/straight potential, so they punch above their raw equity in these spots.",
+  offsuit_ace: "Offsuit aces have solid high-card value but weaker playability than a suited ace, so they're often borderline depending on the seat.",
+  suited_broadway: "Suited broadway hands connect with lots of flops and have backup flush/straight equity, making them strong wide-range plays.",
+  offsuit_broadway: "Offsuit broadway hands have decent raw equity but dominate less of an opponent's range without flush-draw backup.",
+  suited_connector: "Suited connectors lean on postflop playability (straights/flushes) rather than raw preflop equity, so they need position or good odds to be worth it.",
+  suited_other: "Disconnected suited hands get a small equity boost from the flush draw but otherwise play close to their offsuit equivalent.",
+  offsuit_other: "Weak, disconnected offsuit hands have little raw equity and poor playability \u2014 they need a wide range or great pot odds to be worth continuing."
+};
+function handCategory(hand){
+  if(hand.length===2){
+    const idx = RANKS.indexOf(hand[0]);
+    if(idx<=2) return 'premium_pair';   // AA KK QQ
+    if(idx<=5) return 'mid_pair';       // JJ TT 99
+    return 'small_pair';                // 88 and below
+  }
+  const suited = hand[2]==='s';
+  const r1 = hand[0], r2 = hand[1];
+  const hasAce = (r1==='A'||r2==='A');
+  const broadwayRanks = ['A','K','Q','J','T'];
+  const isBroadway = broadwayRanks.includes(r1) && broadwayRanks.includes(r2);
+  if(hasAce) return suited ? 'suited_ace' : 'offsuit_ace';
+  if(isBroadway) return suited ? 'suited_broadway' : 'offsuit_broadway';
+  const gap = Math.abs(RANKS.indexOf(r1)-RANKS.indexOf(r2));
+  if(suited && gap<=2) return 'suited_connector';
+  if(suited) return 'suited_other';
+  return 'offsuit_other';
+}
+function ruleOfThumb(mode,pos,hand){
+  const cat = handCategory(hand);
+  const posNote = mode==='RFI' ? POS_RFI_NOTE[pos] : POS_BB_NOTE[pos];
+  const handNote = HAND_NOTES[cat];
+  return posNote + ' ' + handNote;
+}
+
 // ---------- quiz ----------
 function renderQuiz(){
   const panel = document.getElementById('rfiQuizPanel');
@@ -132,18 +185,18 @@ function renderQuiz(){
   const acts = actionsFor(q.mode,q.pos);
   const st = statusFor(q.mode,q.pos,q.hand);
   panel.innerHTML =
-    '<div class="quiz-card">'
+      '<div class="quiz-card">'
       + '<div class="quiz-context">'+contextLabel(q)+'</div>'
       + '<div class="rfi-status '+st.cls+'">'+st.label+'</div>'
       + renderCards(q.hand)
       + '<div style="font-size:13px;color:var(--muted);">'+formatHandName(q.hand)+'</div>'
       + '<div class="quiz-actions" id="quizActions">'
-        + acts.map(a=>'<button class="act-btn '+a.cls+'" data-key="'+a.key+'">'+a.label+'</button>').join('')
+      + acts.map(a=>'<button class="act-btn '+a.cls+'" data-key="'+a.key+'">'+a.label+'</button>').join('')
       + '</div>'
       + '<div class="feedback" id="quizFeedback"></div>'
       + '<div id="quizNextWrap"></div>'
       + '<div class="score-row"><span>Session: <b>'+state.sessionCorrect+'/'+state.sessionTotal+'</b></span><span>Streak: <b>'+state.streakCorrect+'</b></span></div>'
-    + '</div>';
+      + '</div>';
 
   document.querySelectorAll('#quizActions .act-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>handleAnswer(btn.dataset.key));
@@ -173,6 +226,9 @@ function handleAnswer(chosenKey){
   msg += 'Correct action: <b>'+labelFor(dominant)+'</b>';
   const pctParts = Object.keys(cell.pcts).map(a=> labelFor(a)+' '+cell.pcts[a].toFixed(0)+'%');
   msg += '<div style="margin-top:6px;font-size:12px;color:var(--muted);">'+pctParts.join(' \u00b7 ')+'</div>';
+  if(!correct){
+    msg += '<div style="margin-top:10px;font-size:12px;color:var(--text);text-align:left;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;"><b style="color:var(--gold-bright);">Rule of thumb:</b> '+ruleOfThumb(q.mode,q.pos,q.hand)+'</div>';
+  }
   feedback.className = 'feedback ' + (correct?'correct':'incorrect');
   feedback.innerHTML = msg;
 
@@ -196,11 +252,11 @@ function handleAnswer(chosenKey){
 // ---------- ledger ----------
 function renderLegend(){
   return '<div class="rfi-legend">'
-    + '<div class="rfi-legend-item"><span class="rfi-legend-swatch" style="background:#2e3440;"></span>Untested</div>'
-    + '<div class="rfi-legend-item"><span class="rfi-legend-swatch" style="background:var(--brick-bright);"></span>Learning, &lt;50%</div>'
-    + '<div class="rfi-legend-item"><span class="rfi-legend-swatch" style="background:var(--gold-bright);"></span>Learning, \u226550%</div>'
-    + '<div class="rfi-legend-item"><span class="rfi-legend-swatch" style="background:var(--sage-bright);"></span>Mastered</div>'
-    + '</div>';
+      + '<div class="rfi-legend-item"><span class="rfi-legend-swatch" style="background:#2e3440;"></span>Untested</div>'
+      + '<div class="rfi-legend-item"><span class="rfi-legend-swatch" style="background:var(--brick-bright);"></span>Learning, &lt;50%</div>'
+      + '<div class="rfi-legend-item"><span class="rfi-legend-swatch" style="background:var(--gold-bright);"></span>Learning, \u226550%</div>'
+      + '<div class="rfi-legend-item"><span class="rfi-legend-swatch" style="background:var(--sage-bright);"></span>Mastered</div>'
+      + '</div>';
 }
 
 function renderHeatmap(mode,pos){
@@ -220,8 +276,8 @@ function renderHeatmap(mode,pos){
         const acc = p.correct/p.total;
         weak = !isMastered(p);
         if(isMastered(p)){ bg = 'var(--sage-bright)'; tip = hand+': mastered ('+p.correct+'/'+p.total+')'; }
-        else if(acc>=0.5){ bg = 'var(--gold-bright)'; tip = hand+': learning ('+(acc*100).toFixed(0)+'%, '+p.correct+'/'+p.total; }
-        else { bg = 'var(--brick-bright)'; tip = hand+': learning ('+(acc*100).toFixed(0)+'%, '+p.correct+'/'+p.total; }
+        else if(acc>=0.5){ bg = 'var(--gold-bright)'; tip = hand+': learning ('+(acc*100).toFixed(0)+'%, '+p.total+' reps)'; }
+        else { bg = 'var(--brick-bright)'; tip = hand+': learning ('+(acc*100).toFixed(0)+'%, '+p.total+' reps)'; }
       }
       const dim = (state.focusWeak && !weak) ? 'opacity:0.18;' : '';
       cells += '<div class="rfi-cell" style="background:'+bg+';'+dim+'" data-tip="'+tip+'">'+hand+'</div>';
@@ -262,9 +318,9 @@ function renderLedger(){
   const tested = mastered+learning;
 
   let html = '<div class="rfi-ledgersub">'+tested+' / '+totalCombos+' hand-position combos attempted &nbsp;\u00b7&nbsp; '
-    + '<b style="color:var(--sage-bright);">'+mastered+' mastered</b> &nbsp;\u00b7&nbsp; '
-    + '<b style="color:var(--gold-bright);">'+learning+' learning</b> &nbsp;\u00b7&nbsp; '
-    + accPct+'% lifetime accuracy over '+totalAns+' reps</div>';
+      + '<b style="color:var(--sage-bright);">'+mastered+' mastered</b> &nbsp;\u00b7&nbsp; '
+      + '<b style="color:var(--gold-bright);">'+learning+' learning</b> &nbsp;\u00b7&nbsp; '
+      + accPct+'% lifetime accuracy over '+totalAns+' reps</div>';
 
   html += renderLegend();
   if(state.posFilter !== "ALL"){
@@ -347,12 +403,12 @@ function renderFocusToggle(){
 function renderProfileBar(){
   const bar = document.getElementById('profileBar');
   bar.innerHTML =
-    '<span>Playing as <b>'+state.profile+'</b></span>'
-    + '<div class="profile-actions">'
+      '<span>Playing as <b>'+state.profile+'</b></span>'
+      + '<div class="profile-actions">'
       + '<button id="exportBtn">Export progress</button>'
       + '<button id="importBtn">Import progress</button>'
       + '<button id="switchProfileBtn">Switch profile</button>'
-    + '</div>';
+      + '</div>';
   document.getElementById('exportBtn').addEventListener('click', exportProgress);
   document.getElementById('importBtn').addEventListener('click', ()=>document.getElementById('importFileInput').click());
   document.getElementById('switchProfileBtn').addEventListener('click', showProfileGate);
@@ -398,26 +454,26 @@ function importProgress(file){
 // ---------- shell ----------
 function renderShell(){
   root.innerHTML =
-    '<div class="profile-bar" id="profileBar"></div>'
-    + '<div class="rfi-header">'
+      '<div class="profile-bar" id="profileBar"></div>'
+      + '<div class="rfi-header">'
       + '<div><h1 class="rfi-title">The Ledger</h1><div class="rfi-subtitle">Preflop GTO trainer \u2014 RFI &amp; BB defense</div></div>'
-    + '</div>'
-    + '<details class="rfi-help"><summary>How this works</summary>'
-      + '<div style="margin-top:8px;">'
-        + '<p>Pick a mode: <b>RFI</b> drills opening ranges (should you raise or fold, or limp from SB). <b>BB Defense</b> drills how BB should respond to each position\'s open \u2014 3-bet, call, or fold.</p>'
-        + '<p>Every hand+position+mode combo you answer is saved to this browser under your profile name. A combo becomes <span style="color:var(--sage-bright);">Mastered</span> after 3 correct answers in a row, and resets to Learning if you miss it again.</p>'
-        + '<p style="color:var(--muted);font-size:12px;">Data is from GTO Wizard solver output (2.5x opens, 3.5x SB opens, 100bb 6-max). Progress lives only in this browser \u2014 use Export to back it up.</p>'
       + '</div>'
-    + '</details>'
-    + '<div class="mode-row" id="modeRow"></div>'
-    + '<div class="pos-row" id="posRow"></div>'
-    + '<label class="rfi-focus" id="focusToggleRow"><input type="checkbox" id="focusToggle"><span></span></label>'
-    + '<div class="rfi-tabs">'
+      + '<details class="rfi-help"><summary>How this works</summary>'
+      + '<div style="margin-top:8px;">'
+      + '<p>Pick a mode: <b>RFI</b> drills opening ranges (should you raise or fold, or limp from SB). <b>BB Defense</b> drills how BB should respond to each position\'s open \u2014 3-bet, call, or fold.</p>'
+      + '<p>Every hand+position+mode combo you answer is saved to this browser under your profile name. A combo becomes <span style="color:var(--sage-bright);">Mastered</span> after 3 correct answers in a row, and resets to Learning if you miss it again.</p>'
+      + '<p style="color:var(--muted);font-size:12px;">Data is from GTO Wizard solver output (2.5x opens, 3.5x SB opens, 100bb 6-max). Progress lives only in this browser \u2014 use Export to back it up.</p>'
+      + '</div>'
+      + '</details>'
+      + '<div class="mode-row" id="modeRow"></div>'
+      + '<div class="pos-row" id="posRow"></div>'
+      + '<label class="rfi-focus" id="focusToggleRow"><input type="checkbox" id="focusToggle"><span></span></label>'
+      + '<div class="rfi-tabs">'
       + '<button class="rfi-tab active" data-tab="quiz">Quiz</button>'
       + '<button class="rfi-tab" data-tab="ledger">Ledger</button>'
-    + '</div>'
-    + '<div class="rfi-panel active" id="rfiQuizPanel"></div>'
-    + '<div class="rfi-panel" id="rfiLedgerPanel"></div>';
+      + '</div>'
+      + '<div class="rfi-panel active" id="rfiQuizPanel"></div>'
+      + '<div class="rfi-panel" id="rfiLedgerPanel"></div>';
 
   renderProfileBar();
   renderModeRow();
@@ -445,14 +501,14 @@ function renderShell(){
 function showProfileGate(){
   const known = getKnownProfiles();
   root.innerHTML =
-    '<div class="profile-gate">'
+      '<div class="profile-gate">'
       + '<h2>Who\'s playing?</h2>'
       + '<p>No password \u2014 this just keeps your progress separate from anyone else using this browser.</p>'
       + '<input type="text" id="profileNameInput" placeholder="Your name" maxlength="30">'
       + '<button id="profileStartBtn">Start training</button>'
       + (known.length ? '<div class="profile-existing">Or continue as: '
           + known.map(n=>'<button data-name="'+n+'">'+n+'</button>').join('') + '</div>' : '')
-    + '</div>';
+      + '</div>';
 
   document.getElementById('profileStartBtn').addEventListener('click', ()=>{
     const val = document.getElementById('profileNameInput').value.trim();
