@@ -171,11 +171,44 @@ function handCategory(hand){
   if(suited) return 'suited_other';
   return 'offsuit_other';
 }
-function ruleOfThumb(mode,pos,hand){
+function isPremiumFor3Bet(hand){
+  if(hand.length===2) return RANKS.indexOf(hand[0])<=2; // AA KK QQ
+  return hand==='AKs' || hand==='AKo';
+}
+
+function bbActionNote(hand,dominant){
+  const hasA = hand.indexOf('A')>=0;
+  const hasK = hand.indexOf('K')>=0;
+  if(dominant==='raise'){
+    if(isPremiumFor3Bet(hand)){
+      return "This is a value 3-bet \u2014 it's strong enough to build the pot now and continue comfortably even if villain 4-bets.";
+    }
+    if(hasA || hasK){
+      const blockerRank = hasA ? 'ace' : 'king';
+      const blocked = hasA ? 'premium pairs and AK' : 'KK and AK';
+      return "This is a 3-bet bluff/blocker hand, not a value hand: holding the "+blockerRank+" removes some of villain's strongest continuing combos (like "+blocked+"), and the hand still has live equity/suitedness if it does get called \u2014 that combination makes it a better bluffing candidate than a similarly weak hand with no blocker.";
+    }
+    return "This 3-bets as a blocker/equity hybrid \u2014 it's not strong enough to flat profitably out of position, but it removes value combos from villain's range and keeps some equity if called.";
+  }
+  if(dominant==='call'){
+    return "This flats rather than 3-bets \u2014 it's a real hand with good equity and playability, but 3-betting mostly just folds out worse hands while risking getting crushed by a 4-bet. Calling keeps villain's whole range in so this hand can realize its equity (or hit big) across a wider range of flops.";
+  }
+  return "Not enough raw equity or blocker value here to continue profitably against this range \u2014 it just gives up too much when called or 4-bet.";
+}
+
+function rfiActionNote(hand,dominant){
   const cat = handCategory(hand);
+  if(dominant==='raise') return HAND_NOTES[cat];
+  if(dominant==='call'){
+    return "This limps rather than raises \u2014 it has some equity and playability but isn't strong enough to build a big pot as the only raiser, so it keeps the pot small and sees a cheap flop instead.";
+  }
+  return "With this many players left to act, this hand doesn't have enough raw equity or playability to profitably open here \u2014 better to give it up.";
+}
+
+function ruleOfThumb(mode,pos,hand,dominant){
   const posNote = mode==='RFI' ? POS_RFI_NOTE[pos] : POS_BB_NOTE[pos];
-  const handNote = HAND_NOTES[cat];
-  return posNote + ' ' + handNote;
+  const actionNote = mode==='BB' ? bbActionNote(hand,dominant) : rfiActionNote(hand,dominant);
+  return posNote + ' ' + actionNote;
 }
 
 // ---------- quiz ----------
@@ -227,8 +260,8 @@ function handleAnswer(chosenKey){
   const pctParts = Object.keys(cell.pcts).map(a=> labelFor(a)+' '+cell.pcts[a].toFixed(0)+'%');
   msg += '<div style="margin-top:6px;font-size:12px;color:var(--muted);">'+pctParts.join(' \u00b7 ')+'</div>';
   if(!correct){
-    msg += '<div style="margin-top:10px;font-size:12px;color:var(--text);text-align:left;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;"><b style="color:var(--gold-bright);">Rule of thumb:</b> '+ruleOfThumb(q.mode,q.pos,q.hand)+'</div>';
-  }
+    msg += '<div style="margin-top:10px;font-size:12px;color:var(--text);text-align:left;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;"><b style="color:var(--gold-bright);">Rule of thumb:</b> '+ruleOfThumb(q.mode,q.pos,q.hand,dominant)+'</div>';
+   }
   feedback.className = 'feedback ' + (correct?'correct':'incorrect');
   feedback.innerHTML = msg;
 
