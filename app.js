@@ -1,5 +1,13 @@
 const POSITIONS = ["UTG","HJ","CO","BTN","SB"];
+const POSITIONS_OPEN_HERO = ["HJ","CO","BTN","SB"];
+const ORDER_FULL = ["UTG","HJ","CO","BTN","SB"];
 const RANKS = ["A","K","Q","J","T","9","8","7","6","5","4","3","2"];
+
+function validOpeners(hero){
+  const i = ORDER_FULL.indexOf(hero);
+  return ORDER_FULL.slice(0, i);
+}
+function allPossibleOpeners(){ return ["UTG","HJ","CO","BTN"]; }
 
 let RAW_DATA = null;
 
@@ -7,6 +15,7 @@ let state = {
   profile: null,
   mode: "RFI",
   posFilter: "ALL",
+  heroFilter: "ALL",
   focusWeak: false,
   activeTab: "quiz",
   currentQ: null,
@@ -45,13 +54,41 @@ function saveProgress(){
 }
 
 function keyFor(mode,pos,hand){ return mode+':'+pos+':'+hand; }
-function allHandsForPos(mode,pos){ return Object.keys(RAW_DATA[mode][pos]); }
+function cellsFor(mode,pos){
+  if(mode==='OPEN'){
+    const [hero,vs] = pos.split('|');
+    return RAW_DATA.OPEN[hero][vs];
+  }
+  return RAW_DATA[mode][pos];
+}
+function allHandsForPos(mode,pos){ return Object.keys(cellsFor(mode,pos)); }
 function isMastered(p){ return p && p.streak>=3; }
+
+function getPool(mode){
+  if(mode !== 'OPEN'){
+    return state.posFilter === "ALL" ? POSITIONS.slice() : [state.posFilter];
+  }
+  const heroes = state.heroFilter === "ALL" ? POSITIONS_OPEN_HERO.slice() : [state.heroFilter];
+  let pool = [];
+  heroes.forEach(hero=>{
+    const validVs = validOpeners(hero);
+    const vsList = (state.posFilter === "ALL" || !validVs.includes(state.posFilter)) ? validVs : [state.posFilter];
+    vsList.forEach(vs=> pool.push(hero+'|'+vs));
+  });
+  return pool;
+}
+function displayPosLabel(mode,pos){
+  if(mode==='OPEN'){
+    const [hero,vs] = pos.split('|');
+    return hero+' vs '+vs;
+  }
+  return pos;
+}
 
 // ---------- weighted picking ----------
 function pickQuestion(){
   const mode = state.mode;
-  const pool = state.posFilter === "ALL" ? POSITIONS.slice() : [state.posFilter];
+  const pool = getPool(mode);
   let candidates = [];
   pool.forEach(pos=>{
     allHandsForPos(mode,pos).forEach(hand=>{
@@ -82,34 +119,17 @@ function parseHand(hand){
   if(hand.length===2) return {c1:hand[0],c2:hand[1],type:'pair'};
   return {c1:hand[0],c2:hand[1],type:hand[2]==='s'?'suited':'offsuit'};
 }
-const SUITS = ['\u2660','\u2665','\u2666','\u2663']; // spade, heart, diamond, club
-
-function randomSuit(exclude){
-  let s;
-  do{ s = SUITS[Math.floor(Math.random()*SUITS.length)]; } while(exclude && s===exclude);
-  return s;
-}
-
-function suitColorClass(s){
-  if(s==='\u2665') return 'red';    // hearts
-  if(s==='\u2666') return 'blue';   // diamonds
-  if(s==='\u2663') return 'green';  // clubs
-  return '';                        // spades - default black
-}
-
 function renderCards(hand){
   const h = parseHand(hand);
   let s1,s2;
-  if(h.type==='suited'){
-    s1 = s2 = randomSuit();
-  } else {
-    s1 = randomSuit();
-    s2 = randomSuit(s1);
-  }
+  if(h.type==='pair'){ s1='\u2660'; s2='\u2665'; }
+  else if(h.type==='suited'){ s1=s2='\u2660'; }
+  else { s1='\u2660'; s2='\u2665'; }
+  const redSuit = (s)=> (s==='\u2665'||s==='\u2666');
   return '<div class="quiz-hand">'
-    + '<div class="card '+suitColorClass(s1)+'">'+h.c1+'<div style="font-size:16px;">'+s1+'</div></div>'
-    + '<div class="card '+suitColorClass(s2)+'">'+h.c2+'<div style="font-size:16px;">'+s2+'</div></div>'
-    + '</div>';
+      + '<div class="card '+(redSuit(s1)?'red':'')+'">'+h.c1+'<div style="font-size:16px;">'+s1+'</div></div>'
+      + '<div class="card '+(redSuit(s2)?'red':'')+'">'+h.c2+'<div style="font-size:16px;">'+s2+'</div></div>'
+      + '</div>';
 }
 function formatHandName(hand){
   const h = parseHand(hand);
@@ -126,6 +146,10 @@ function actionsFor(mode,pos){
 }
 function contextLabel(q){
   if(q.mode==='RFI') return q.pos + ' RFI';
+  if(q.mode==='OPEN'){
+    const [hero,vs] = q.pos.split('|');
+    return hero + ' facing ' + vs + ' open';
+  }
   return 'BB defending vs ' + q.pos + ' open';
 }
 function labelFor(key){
@@ -157,6 +181,21 @@ const POS_BB_NOTE = {
   BTN: "BTN opens the widest range of any seat, so BB should defend very wide in return.",
   SB: "SB's open is wide, but SB is out of position for the rest of the hand, so BB can defend aggressively, especially with hands that play well postflop."
 };
+const HERO_WIDTH_NOTE_OPEN = {
+  HJ: "HJ still has CO, BTN, and both blinds left to act behind it, so it needs a genuine hand to continue.",
+  CO: "CO has only BTN and the blinds left to act, giving it more room to continue wider.",
+  BTN: "BTN closes out the preflop action except for the blinds, so it can continue very wide here.",
+  SB: "SB is the last seat to act before BB, so it can continue quite wide, though it's out of position for the rest of the hand."
+};
+const OPENER_STRENGTH_NOTE = {
+  UTG: "UTG's opening range is tight and strong, since up to five players could still wake up with a hand behind it.",
+  HJ: "HJ's opening range is still fairly tight given how many players are left to act behind it.",
+  CO: "CO's opening range is wider and weaker on average, since only BTN and the blinds remain.",
+  BTN: "BTN's opening range is the widest of any seat, since it's only stealing against the blinds."
+};
+function openPosNote(hero,vs){
+  return HERO_WIDTH_NOTE_OPEN[hero] + ' ' + OPENER_STRENGTH_NOTE[vs];
+}
 const HAND_NOTES = {
   premium_pair: "Big pairs flip very few hands you're worried about, so they play as raises in almost every spot.",
   mid_pair: "Medium pairs are strong enough to raise for value but vulnerable to overcards, so position and range width matter a lot here.",
@@ -188,6 +227,7 @@ function handCategory(hand){
   if(suited) return 'suited_other';
   return 'offsuit_other';
 }
+
 function isPremiumFor3Bet(hand){
   if(hand.length===2) return RANKS.indexOf(hand[0])<=2; // AA KK QQ
   return hand==='AKs' || hand==='AKo';
@@ -223,6 +263,10 @@ function rfiActionNote(hand,dominant){
 }
 
 function ruleOfThumb(mode,pos,hand,dominant){
+  if(mode==='OPEN'){
+    const [hero,vs] = pos.split('|');
+    return openPosNote(hero,vs) + ' ' + bbActionNote(hand,dominant);
+  }
   const posNote = mode==='RFI' ? POS_RFI_NOTE[pos] : POS_BB_NOTE[pos];
   const actionNote = mode==='BB' ? bbActionNote(hand,dominant) : rfiActionNote(hand,dominant);
   return posNote + ' ' + actionNote;
@@ -255,7 +299,7 @@ function renderQuiz(){
 
 function handleAnswer(chosenKey){
   const q = state.currentQ;
-  const cell = RAW_DATA[q.mode][q.pos][q.hand];
+  const cell = cellsFor(q.mode,q.pos)[q.hand];
   const dominant = cell.dominant;
   const correct = (chosenKey === dominant);
 
@@ -278,7 +322,7 @@ function handleAnswer(chosenKey){
   msg += '<div style="margin-top:6px;font-size:12px;color:var(--muted);">'+pctParts.join(' \u00b7 ')+'</div>';
   if(!correct){
     msg += '<div style="margin-top:10px;font-size:12px;color:var(--text);text-align:left;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;"><b style="color:var(--gold-bright);">Rule of thumb:</b> '+ruleOfThumb(q.mode,q.pos,q.hand,dominant)+'</div>';
-   }
+  }
   feedback.className = 'feedback ' + (correct?'correct':'incorrect');
   feedback.innerHTML = msg;
 
@@ -339,7 +383,7 @@ function renderHeatmap(mode,pos){
 function renderLedger(){
   const panel = document.getElementById('rfiLedgerPanel');
   const mode = state.mode;
-  const pool = state.posFilter === "ALL" ? POSITIONS.slice() : [state.posFilter];
+  const pool = getPool(mode);
 
   let totalCombos=0, mastered=0, learning=0, totalAns=0, totalCorrect=0;
   let weakList = [];
@@ -373,11 +417,11 @@ function renderLedger(){
       + accPct+'% lifetime accuracy over '+totalAns+' reps</div>';
 
   html += renderLegend();
-  if(state.posFilter !== "ALL"){
-    html += renderHeatmap(mode,state.posFilter);
+  if(pool.length === 1){
+    html += renderHeatmap(mode,pool[0]);
   } else {
     pool.forEach(pos=>{
-      html += '<div style="font-size:13px;font-weight:600;color:var(--text);margin:14px 0 8px;">'+pos+'</div>';
+      html += '<div style="font-size:13px;font-weight:600;color:var(--text);margin:14px 0 8px;">'+displayPosLabel(mode,pos)+'</div>';
       html += renderHeatmap(mode,pos);
     });
   }
@@ -387,7 +431,7 @@ function renderLedger(){
     html += '<div style="font-size:13px;color:var(--muted);">No data yet \u2014 answer some hands first.</div>';
   } else {
     weakList.forEach(w=>{
-      html += '<div class="weak-item"><span>'+w.hand+' \u2014 '+w.pos+'</span><span>'+(w.acc*100).toFixed(0)+'% ('+w.total+' reps)</span></div>';
+      html += '<div class="weak-item"><span>'+w.hand+' \u2014 '+displayPosLabel(mode,w.pos)+'</span><span>'+(w.acc*100).toFixed(0)+'% ('+w.total+' reps)</span></div>';
     });
   }
   html += '</div>';
@@ -398,22 +442,51 @@ function renderLedger(){
 // ---------- controls ----------
 function renderModeRow(){
   const row = document.getElementById('modeRow');
-  const modes = [{key:'RFI',label:'RFI (Opening)'},{key:'BB',label:'BB Defense'}];
+  const modes = [{key:'RFI',label:'RFI (Opening)'},{key:'BB',label:'BB Defense'},{key:'OPEN',label:'Facing an Open'}];
   row.innerHTML = modes.map(m=>'<button class="mode-btn '+(state.mode===m.key?'active':'')+'" data-mode="'+m.key+'">'+m.label+'</button>').join('');
   row.querySelectorAll('.mode-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       state.mode = btn.dataset.mode;
+      state.posFilter = 'ALL';
+      state.heroFilter = 'ALL';
       state.currentQ = pickQuestion();
       renderShell();
+    });
+  });
+}
+function renderHeroRow(){
+  const row = document.getElementById('heroRow');
+  if(state.mode !== 'OPEN'){ row.innerHTML = ''; return; }
+  let html = '<span style="color:var(--muted);font-size:12px;align-self:center;margin-right:4px;">Position:</span>';
+  html += '<button class="pos-btn '+(state.heroFilter==='ALL'?'active':'')+'" data-hero="ALL">All</button>';
+  POSITIONS_OPEN_HERO.forEach(p=>{
+    html += '<button class="pos-btn '+(state.heroFilter===p?'active':'')+'" data-hero="'+p+'">'+p+'</button>';
+  });
+  row.innerHTML = html;
+  row.querySelectorAll('.pos-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      state.heroFilter = btn.dataset.hero;
+      state.posFilter = 'ALL';
+      state.currentQ = pickQuestion();
+      renderShell();
+      if(state.activeTab==='ledger'){
+        document.querySelector('.rfi-tab[data-tab="ledger"]').click();
+      }
     });
   });
 }
 function renderPosRow(){
   const row = document.getElementById('posRow');
   const label = state.mode==='RFI' ? 'Position' : 'Vs Position';
+  let options;
+  if(state.mode==='OPEN'){
+    options = state.heroFilter==='ALL' ? allPossibleOpeners() : validOpeners(state.heroFilter);
+  } else {
+    options = POSITIONS;
+  }
   let html = '<span style="color:var(--muted);font-size:12px;align-self:center;margin-right:4px;">'+label+':</span>';
   html += '<button class="pos-btn '+(state.posFilter==='ALL'?'active':'')+'" data-pos="ALL">All</button>';
-  POSITIONS.forEach(p=>{
+  options.forEach(p=>{
     html += '<button class="pos-btn '+(state.posFilter===p?'active':'')+'" data-pos="'+p+'">'+p+'</button>';
   });
   row.innerHTML = html;
@@ -430,7 +503,7 @@ function renderPosRow(){
 }
 function renderFocusToggle(){
   const mode = state.mode;
-  const pool = state.posFilter === "ALL" ? POSITIONS.slice() : [state.posFilter];
+  const pool = getPool(mode);
   let weakCount = 0;
   pool.forEach(pos=>{
     allHandsForPos(mode,pos).forEach(hand=>{
@@ -510,12 +583,13 @@ function renderShell(){
       + '</div>'
       + '<details class="rfi-help"><summary>How this works</summary>'
       + '<div style="margin-top:8px;">'
-      + '<p>Pick a mode: <b>RFI</b> drills opening ranges (should you raise or fold, or limp from SB). <b>BB Defense</b> drills how BB should respond to each position\'s open \u2014 3-bet, call, or fold.</p>'
+      + '<p>Pick a mode: <b>RFI</b> drills opening ranges (should you raise or fold, or limp from SB). <b>BB Defense</b> drills how BB should respond to each position\'s open \u2014 3-bet, call, or fold. <b>Facing an Open</b> drills the same 3-bet/call/fold decision for HJ, CO, BTN, or SB when someone in front of them has opened.</p>'
       + '<p>Every hand+position+mode combo you answer is saved to this browser under your profile name. A combo becomes <span style="color:var(--sage-bright);">Mastered</span> after 3 correct answers in a row, and resets to Learning if you miss it again.</p>'
       + '<p style="color:var(--muted);font-size:12px;">Data is from GTO Wizard solver output (2.5x opens, 3.5x SB opens, 100bb 6-max). Progress lives only in this browser \u2014 use Export to back it up.</p>'
       + '</div>'
       + '</details>'
       + '<div class="mode-row" id="modeRow"></div>'
+      + '<div class="pos-row" id="heroRow"></div>'
       + '<div class="pos-row" id="posRow"></div>'
       + '<label class="rfi-focus" id="focusToggleRow"><input type="checkbox" id="focusToggle"><span></span></label>'
       + '<div class="rfi-tabs">'
@@ -527,6 +601,7 @@ function renderShell(){
 
   renderProfileBar();
   renderModeRow();
+  renderHeroRow();
   renderPosRow();
   renderFocusToggle();
   renderQuiz();
@@ -585,6 +660,7 @@ function activateProfile(name){
   state.streakCorrect = 0;
   state.mode = 'RFI';
   state.posFilter = 'ALL';
+  state.heroFilter = 'ALL';
   state.focusWeak = false;
   state.currentQ = pickQuestion();
   renderShell();
