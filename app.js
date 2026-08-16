@@ -119,17 +119,35 @@ function parseHand(hand){
   if(hand.length===2) return {c1:hand[0],c2:hand[1],type:'pair'};
   return {c1:hand[0],c2:hand[1],type:hand[2]==='s'?'suited':'offsuit'};
 }
+
+const SUITS = ['\u2660','\u2665','\u2666','\u2663']; // spade, heart, diamond, club
+
+function randomSuit(exclude){
+  let s;
+  do{ s = SUITS[Math.floor(Math.random()*SUITS.length)]; } while(exclude && s===exclude);
+  return s;
+}
+
+function suitColorClass(s){
+  if(s==='\u2665') return 'red';    // hearts
+  if(s==='\u2666') return 'blue';   // diamonds
+  if(s==='\u2663') return 'green';  // clubs
+  return '';                        // spades - default black
+}
+
 function renderCards(hand){
   const h = parseHand(hand);
   let s1,s2;
-  if(h.type==='pair'){ s1='\u2660'; s2='\u2665'; }
-  else if(h.type==='suited'){ s1=s2='\u2660'; }
-  else { s1='\u2660'; s2='\u2665'; }
-  const redSuit = (s)=> (s==='\u2665'||s==='\u2666');
+  if(h.type==='suited'){
+    s1 = s2 = randomSuit();
+  } else {
+    s1 = randomSuit();
+    s2 = randomSuit(s1);
+  }
   return '<div class="quiz-hand">'
-      + '<div class="card '+(redSuit(s1)?'red':'')+'">'+h.c1+'<div style="font-size:16px;">'+s1+'</div></div>'
-      + '<div class="card '+(redSuit(s2)?'red':'')+'">'+h.c2+'<div style="font-size:16px;">'+s2+'</div></div>'
-      + '</div>';
+    + '<div class="card '+suitColorClass(s1)+'">'+h.c1+'<div style="font-size:16px;">'+s1+'</div></div>'
+    + '<div class="card '+suitColorClass(s2)+'">'+h.c2+'<div style="font-size:16px;">'+s2+'</div></div>'
+    + '</div>';
 }
 function formatHandName(hand){
   const h = parseHand(hand);
