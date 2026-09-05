@@ -18,6 +18,7 @@ let state = {
   heroFilter: "ALL",
   focusWeak: false,
   activeTab: "quiz",
+  chartScenario: null,
   currentQ: null,
   streakCorrect: 0,
   sessionCorrect: 0,
@@ -343,6 +344,106 @@ function handleAnswer(chosenKey){
   }
 }
 
+// ---------- charts ----------
+function buildScenarioList(){
+  const list = [];
+  Object.keys(RAW_DATA.RFI).forEach(pos=>{
+    list.push({mode:'RFI', pos:pos, label:pos+' RFI', group:'RFI (Opening)'});
+  });
+  Object.keys(RAW_DATA.BB).forEach(pos=>{
+    list.push({mode:'BB', pos:pos, label:'BB vs '+pos+' open', group:'BB Defense'});
+  });
+  Object.keys(RAW_DATA.OPEN).forEach(hero=>{
+    Object.keys(RAW_DATA.OPEN[hero]).forEach(vs=>{
+      list.push({mode:'OPEN', pos:hero+'|'+vs, label:hero+' vs '+vs+' open', group:'Facing an Open'});
+    });
+  });
+  return list;
+}
+function scenarioId(s){ return s.mode+'::'+s.pos; }
+function actionColorVar(key){
+  if(key==='raise') return 'var(--brick)';
+  if(key==='call') return 'var(--sage)';
+  return 'var(--gold)';
+}
+function splitBarBackground(pcts){
+  const order = ['raise','call','fold'];
+  let acc = 0;
+  const stops = [];
+  order.forEach(k=>{
+    const v = pcts[k];
+    if(!v) return;
+    const start = acc, end = acc+v;
+    const color = actionColorVar(k);
+    stops.push(color+' '+start.toFixed(2)+'%', color+' '+end.toFixed(2)+'%');
+    acc = end;
+  });
+  if(stops.length===0) return 'var(--border)';
+  return 'linear-gradient(to right, '+stops.join(', ')+')';
+}
+function renderChartGrid(mode,pos){
+  const cells = cellsFor(mode,pos);
+  let html = '';
+  for(let i=0;i<13;i++){
+    for(let j=0;j<13;j++){
+      let hand;
+      if(i===j) hand = RANKS[i]+RANKS[j];
+      else if(i<j) hand = RANKS[i]+RANKS[j]+'s';
+      else hand = RANKS[j]+RANKS[i]+'o';
+      const cell = cells[hand];
+      const bg = splitBarBackground(cell.pcts);
+      const tipParts = ['raise','call','fold']
+          .filter(k=>cell.pcts[k])
+          .map(k=>labelFor(k)+' '+cell.pcts[k].toFixed(1)+'%');
+      const tip = hand+': '+tipParts.join(' · ');
+      html += '<div class="rfi-cell chart-cell" style="background:'+bg+';" data-tip="'+tip+'">'+hand+'</div>';
+    }
+  }
+  return '<div class="rfi-grid">' + html + '</div>';
+}
+function renderCharts(){
+  const panel = document.getElementById('rfiChartsPanel');
+  const scenarios = buildScenarioList();
+  const validIds = scenarios.map(scenarioId);
+  if(!state.chartScenario || validIds.indexOf(state.chartScenario)===-1){
+    state.chartScenario = scenarioId(scenarios[0]);
+  }
+  const groups = {};
+  const groupOrder = [];
+  scenarios.forEach(s=>{
+    if(!groups[s.group]){ groups[s.group]=[]; groupOrder.push(s.group); }
+    groups[s.group].push(s);
+  });
+  let selectHtml = '<select id="chartScenarioSelect" class="chart-select">';
+  groupOrder.forEach(g=>{
+    selectHtml += '<optgroup label="'+g+'">';
+    groups[g].forEach(s=>{
+      const id = scenarioId(s);
+      selectHtml += '<option value="'+id+'" '+(id===state.chartScenario?'selected':'')+'>'+s.label+'</option>';
+    });
+    selectHtml += '</optgroup>';
+  });
+  selectHtml += '</select>';
+
+  const legend = '<div class="rfi-legend">'
+      + '<div class="rfi-legend-item"><span class="rfi-legend-swatch" style="background:var(--brick);"></span>Raise</div>'
+      + '<div class="rfi-legend-item"><span class="rfi-legend-swatch" style="background:var(--sage);"></span>Call</div>'
+      + '<div class="rfi-legend-item"><span class="rfi-legend-swatch" style="background:var(--gold);"></span>Fold</div>'
+      + '</div>';
+
+  const [mode,pos] = state.chartScenario.split('::');
+
+  panel.innerHTML =
+      '<div class="chart-select-row">'+selectHtml+'</div>'
+      + legend
+      + renderChartGrid(mode,pos);
+
+  document.getElementById('chartScenarioSelect').addEventListener('change', (e)=>{
+    state.chartScenario = e.target.value;
+    renderCharts();
+  });
+}
+
 // ---------- ledger ----------
 function renderLegend(){
   return '<div class="rfi-legend">'
@@ -595,9 +696,11 @@ function renderShell(){
       + '<div class="rfi-tabs">'
       + '<button class="rfi-tab active" data-tab="quiz">Quiz</button>'
       + '<button class="rfi-tab" data-tab="ledger">Ledger</button>'
+      + '<button class="rfi-tab" data-tab="charts">Charts</button>'
       + '</div>'
       + '<div class="rfi-panel active" id="rfiQuizPanel"></div>'
-      + '<div class="rfi-panel" id="rfiLedgerPanel"></div>';
+      + '<div class="rfi-panel" id="rfiLedgerPanel"></div>'
+      + '<div class="rfi-panel" id="rfiChartsPanel"></div>';
 
   renderProfileBar();
   renderModeRow();
@@ -614,9 +717,12 @@ function renderShell(){
       state.activeTab = tab.dataset.tab;
       if(tab.dataset.tab==='quiz'){
         document.getElementById('rfiQuizPanel').classList.add('active');
-      } else {
+      } else if(tab.dataset.tab==='ledger'){
         document.getElementById('rfiLedgerPanel').classList.add('active');
         renderLedger();
+      } else {
+        document.getElementById('rfiChartsPanel').classList.add('active');
+        renderCharts();
       }
     });
   });
